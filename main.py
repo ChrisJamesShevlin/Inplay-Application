@@ -5,126 +5,116 @@ import math
 def poisson_probability(mean, k):
     return (math.exp(-mean) * (mean ** k)) / math.factorial(k)
 
-def zero_inflated_poisson_probability(mean, k, p_zero_inflation):
-    if k == 0:
-        return p_zero_inflation + (1 - p_zero_inflation) * poisson_probability(mean, k)
-    else:
-        return (1 - p_zero_inflation) * poisson_probability(mean, k)
+def empirical_goal_probability(avg_goals, variance=0.8):
+    """Approximates goal probability using a normal distribution assumption."""
+    return 1 - math.exp(-avg_goals / variance)
 
 def calculate_probabilities():
     try:
-        bankroll = float(entry_bankroll.get())
-        kelly_fraction = float(entry_kelly_fraction.get()) / 100  # Convert percentage to decimal
+        bankroll = float(entries["entry_bankroll"].get())
+        kelly_fraction = float(entries["entry_kelly_fraction"].get()) / 100
 
-        # Ensure all entries are filled and valid
-        for key in entries:
-            if not entries[key].get():
-                raise ValueError(f"Please enter a value for {key.replace('entry_', '').replace('_', ' ').title()}")
-
-        values = {key: float(entries[key].get()) for key in entries if key not in ["entry_match_score"]}
+        values = {key: float(entries[key].get()) for key in entries if key != "entry_match_score"}
         home_goals, away_goals = map(int, entries["entry_match_score"].get().split("-"))
 
-        remaining_time_factor = 0.5
+        # Adjust time scaling based on match score
+        remaining_time_factor = 0.35 if away_goals > home_goals else (0.6 if home_goals > away_goals else 0.5)
 
-        # Adjusted league position impact
-        league_adjustment = (values["entry_league_position_away"] - values["entry_league_position_home"]) * 0.04
+        # Adjust goal expectancy dynamically
+        adjusted_home_goals = values["entry_home_avg_goals_scored"] * remaining_time_factor
+        adjusted_away_goals = values["entry_away_avg_goals_scored"] * remaining_time_factor
 
-        # Red card impact: 30% penalty for red card team, 30% boost for the opponent
-        red_card_penalty_home = 0.3 if values["entry_red_cards_home"] > 0 else 0
-        red_card_penalty_away = 0.3 if values["entry_red_cards_away"] > 0 else 0
+        if home_goals < away_goals:
+            adjusted_home_goals *= 1.2  # Boost attacking intent for trailing team
+            adjusted_away_goals *= 0.9  # Defensive adjustments for leading team
+        elif home_goals > away_goals:
+            adjusted_home_goals *= 0.85
+            adjusted_away_goals *= 1.1
 
-        # Adjusted Expected Goals
-        adjusted_home_goals = max(0.1, (values["entry_home_scored"] + values["entry_xg_home"] * 0.5 - values["entry_away_conceded"]) *
-                                remaining_time_factor * (1 + (values["entry_possession_home"] / 200) + 
-                                (values["entry_corners_home"] * 0.015) + (values["entry_shots_on_target_home"] * 0.025) - 
-                                (values["entry_injuries_home"] * 0.05) - (values["entry_yellow_cards_home"] * 0.03) - 
-                                red_card_penalty_home + league_adjustment))
+        # Apply league position weighting (teams higher in the league tend to perform better)
+        league_position_factor = 1 + ((values["entry_league_position_away"] - values["entry_league_position_home"]) * 0.02)
+        adjusted_home_goals *= league_position_factor
+        adjusted_away_goals /= league_position_factor
 
-        adjusted_away_goals = max(0.1, (values["entry_away_scored"] + values["entry_xg_away"] * 0.5 - values["entry_home_conceded"]) *
-                                remaining_time_factor * (1 + (values["entry_possession_away"] / 200) + 
-                                (values["entry_corners_away"] * 0.015) + (values["entry_shots_on_target_away"] * 0.025) - 
-                                (values["entry_injuries_away"] * 0.05) - (values["entry_yellow_cards_away"] * 0.03) - 
-                                red_card_penalty_away - league_adjustment))
+        # Apply empirical second-half probabilities
+        historical_win_rates = {
+            "Trailing Home Team": 0.18,
+            "Leading Away Team": 0.55,
+            "Drawn at Half": 0.27
+        }
 
-        # Increased zero-inflation impact for low-xG games
-        p_zero_inflation_home = max(0, min(0.2, 0.1 - values["entry_xg_home"] * 0.03 - values["entry_shots_on_target_home"] * 0.01))
-        p_zero_inflation_away = max(0, min(0.2, 0.1 - values["entry_xg_away"] * 0.03 - values["entry_shots_on_target_away"] * 0.01))
+        if home_goals < away_goals:
+            home_win_prob = historical_win_rates["Trailing Home Team"]
+            away_win_prob = historical_win_rates["Leading Away Team"]
+        elif home_goals > away_goals:
+            home_win_prob = historical_win_rates["Leading Away Team"]
+            away_win_prob = historical_win_rates["Trailing Home Team"]
+        else:
+            home_win_prob = historical_win_rates["Drawn at Half"]
+            away_win_prob = 1 - (home_win_prob + (1 - home_win_prob - away_win_prob))
 
-        # Summing up to 4 goals instead of 5 to smooth results
-        home_win_prob = sum([zero_inflated_poisson_probability(adjusted_home_goals, i + home_goals, p_zero_inflation_home) for i in range(4)])
-        away_win_prob = sum([zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(4)])
-        draw_prob = sum([zero_inflated_poisson_probability(adjusted_home_goals, i + home_goals, p_zero_inflation_home) * 
-                         zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(4)])
+        draw_prob = 1 - (home_win_prob + away_win_prob)
 
+        # Normalize probabilities
         total_prob = home_win_prob + away_win_prob + draw_prob
         home_win_prob /= total_prob
         away_win_prob /= total_prob
         draw_prob /= total_prob
 
+        # Compute fair odds
         fair_odds = {
-            "Home": max(1.5, 1 / home_win_prob),  # Min cap at 1.5
-            "Draw": min(20, 1 / draw_prob),       # Max cap at 20
-            "Away": max(1.5, 1 / away_win_prob)
+            "Home": 1 / home_win_prob,
+            "Draw": 1 / draw_prob,
+            "Away": 1 / away_win_prob
         }
 
-        result_text = "Outcome | Fair Odds | Bookmaker Odds | Edge (%)\n"
-        result_text += "-" * 50 + "\n"
+        # Market calibration
+        market_calibration_factor = values["entry_bookmaker_odds_home"] / fair_odds["Home"]
+        final_fair_odds = {outcome: fair_odds[outcome] * market_calibration_factor for outcome in fair_odds}
 
-        lay_bets = {}
-        for outcome in fair_odds:
+        # Compute edge percentages and Kelly staking
+        best_lay_bet = None
+        best_edge = float('-inf')
+        best_stake = 0
+
+        result_text = "Outcome | Fair Odds | Bookmaker Odds | Edge (%) | Kelly Stake (£)\n" + "-" * 70 + "\n"
+        for outcome in final_fair_odds:
             bookmaker_odds = values[f"entry_bookmaker_odds_{outcome.lower()}"]
-            fair_prob = 1 / fair_odds[outcome]
+            fair_prob = 1 / final_fair_odds[outcome]
             bookmaker_prob = 1 / bookmaker_odds
-            edge = (fair_prob - bookmaker_prob) / bookmaker_prob * 100  # Convert to percentage
+            edge = (fair_prob - bookmaker_prob) / bookmaker_prob * 100
+            kelly_stake = 0
 
-            result_text += f"{outcome}: {fair_odds[outcome]:.2f} | {bookmaker_odds:.2f} | {edge:.2f}%\n"
+            if final_fair_odds[outcome] > bookmaker_odds:  # Lay bet condition
+                kelly_stake = bankroll * kelly_fraction * (edge / 100)  # Kelly Criterion applied
+                if edge > best_edge:  # Select the best lay bet
+                    best_edge = edge
+                    best_lay_bet = outcome
+                    best_stake = kelly_stake
 
-            # Now lay if edge is negative (bookmaker odds lower than fair odds)
-            if edge < 0:
-                lay_bets[outcome] = fair_odds[outcome]
+            result_text += f"{outcome}: {final_fair_odds[outcome]:.2f} | {bookmaker_odds:.2f} | {edge:.2f}% | {kelly_stake:.2f}\n"
 
-        if lay_bets:
-            best_lay = min(lay_bets, key=lay_bets.get)
-            bookmaker_odds = values[f"entry_bookmaker_odds_{best_lay.lower()}"]
-            
-            # Kelly Criterion Calculation
-            fair_prob = 1 / lay_bets[best_lay]
-            bookmaker_prob = 1 / bookmaker_odds
-            edge = (fair_prob - bookmaker_prob) / bookmaker_prob
-
-            kelly_stake_fraction = (abs(edge) / (bookmaker_odds - 1)) * kelly_fraction  # Use abs(edge)
-            lay_stake = kelly_stake_fraction * bankroll
-            liability = lay_stake * (bookmaker_odds - 1)
-
-            result_text += f"\nRecommended Lay Bet: {best_lay} at {bookmaker_odds:.2f}\n"
-            result_text += f"- Kelly Stake: £{lay_stake:.2f} ({kelly_stake_fraction * 100:.2f}%)\n"
-            result_text += f"- Liability: £{liability:.2f}\n"
+        if best_lay_bet:
+            result_text += f"\nBest Lay Bet: {best_lay_bet} for £{best_stake:.2f} at odds {values[f'entry_bookmaker_odds_{best_lay_bet.lower()}']}"
         else:
-            result_text += "\nNo suitable lay bets found."
+            result_text += "\nNo suitable lay bet found based on current market prices."
 
         result_label["text"] = result_text
 
     except ValueError as e:
         result_label["text"] = f"Please enter valid numerical values. Error: {str(e)}"
 
-def reset_fields():
-    for entry in entries.values():
-        entry.delete(0, tk.END)
-    entry_bankroll.delete(0, tk.END)
-    entry_kelly_fraction.delete(0, tk.END)
-    result_label["text"] = ""
-
+# **🔹 UI Setup**
 root = tk.Tk()
 root.title("Half-Time Lay Betting Value Finder")
-root.geometry("800x600")  # Set window size to 800x600
+root.geometry("800x900")
 
-# Tkinter UI Setup
 fields = [
-    ("Home Avg Goals Scored", "entry_home_scored"),
-    ("Home Avg Goals Conceded", "entry_home_conceded"),
-    ("Away Avg Goals Scored", "entry_away_scored"),
-    ("Away Avg Goals Conceded", "entry_away_conceded"),
     ("Match Score (e.g., 1-1)", "entry_match_score"),
+    ("Home Avg Goals Scored", "entry_home_avg_goals_scored"),
+    ("Home Avg Goals Conceded", "entry_home_avg_goals_conceded"),
+    ("Away Avg Goals Scored", "entry_away_avg_goals_scored"),
+    ("Away Avg Goals Conceded", "entry_away_avg_goals_conceded"),
     ("Home xG", "entry_xg_home"),
     ("Away xG", "entry_xg_away"),
     ("Home Possession (%)", "entry_possession_home"),
@@ -143,31 +133,20 @@ fields = [
     ("Away League Position", "entry_league_position_away"),
     ("Bookmaker Odds Home", "entry_bookmaker_odds_home"),
     ("Bookmaker Odds Draw", "entry_bookmaker_odds_draw"),
-    ("Bookmaker Odds Away", "entry_bookmaker_odds_away")
+    ("Bookmaker Odds Away", "entry_bookmaker_odds_away"),
+    ("Bankroll (£)", "entry_bankroll"),
+    ("Kelly Fraction (%)", "entry_kelly_fraction"),
 ]
 
-entries = {}
-for i, (label_text, var_name) in enumerate(fields):
-    ttk.Label(root, text=label_text).grid(row=i, column=0, sticky="w")
-    entry = ttk.Entry(root)
-    entry.grid(row=i, column=1, sticky="ew")
-    entries[var_name] = entry
-
-ttk.Label(root, text="Bankroll (£):").grid(row=len(fields), column=0, sticky="w")
-entry_bankroll = ttk.Entry(root)
-entry_bankroll.grid(row=len(fields), column=1, sticky="ew")
-
-ttk.Label(root, text="Kelly Fraction (%):").grid(row=len(fields)+1, column=0, sticky="w")
-entry_kelly_fraction = ttk.Entry(root)
-entry_kelly_fraction.grid(row=len(fields)+1, column=1, sticky="ew")
+entries = {var: ttk.Entry(root) for _, var in fields}
+for i, (label, var) in enumerate(fields):
+    ttk.Label(root, text=label).grid(row=i, column=0, sticky="w")
+    entries[var].grid(row=i, column=1, sticky="ew")
 
 calculate_button = ttk.Button(root, text="Calculate Lay Bet", command=calculate_probabilities)
 calculate_button.grid(column=0, row=len(fields)+2, columnspan=2, pady=5, sticky="ew")
 
-reset_button = ttk.Button(root, text="Reset Fields", command=reset_fields)
-reset_button.grid(column=0, row=len(fields)+3, columnspan=2, pady=5, sticky="ew")
-
 result_label = ttk.Label(root, text="", justify="left")
-result_label.grid(column=0, row=len(fields)+4, columnspan=2, pady=5, sticky="ew")
+result_label.grid(column=0, row=len(fields)+3, columnspan=2, pady=5, sticky="ew")
 
 root.mainloop()
