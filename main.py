@@ -85,7 +85,20 @@ def calculate_probabilities():
 
         if lay_bets:
             best_lay = min(lay_bets, key=lay_bets.get)
-            result_text += f"\nRecommended Lay Bet: {best_lay} at {values[f'entry_bookmaker_odds_{best_lay.lower()}']:.2f}\n"
+            bookmaker_odds = values[f"entry_bookmaker_odds_{best_lay.lower()}"]
+            
+            # Kelly Criterion Calculation
+            fair_prob = 1 / lay_bets[best_lay]
+            bookmaker_prob = 1 / bookmaker_odds
+            edge = (fair_prob - bookmaker_prob) / bookmaker_prob
+
+            kelly_stake_fraction = (abs(edge) / (bookmaker_odds - 1)) * kelly_fraction  # Use abs(edge)
+            lay_stake = kelly_stake_fraction * bankroll
+            liability = lay_stake * (bookmaker_odds - 1)
+
+            result_text += f"\nRecommended Lay Bet: {best_lay} at {bookmaker_odds:.2f}\n"
+            result_text += f"- Kelly Stake: £{lay_stake:.2f} ({kelly_stake_fraction * 100:.2f}%)\n"
+            result_text += f"- Liability: £{liability:.2f}\n"
         else:
             result_text += "\nNo suitable lay bets found."
 
@@ -105,6 +118,7 @@ root = tk.Tk()
 root.title("Half-Time Lay Betting Value Finder")
 root.geometry("800x600")  # Set window size to 800x600
 
+# Tkinter UI Setup
 fields = [
     ("Home Avg Goals Scored", "entry_home_scored"),
     ("Home Avg Goals Conceded", "entry_home_conceded"),
