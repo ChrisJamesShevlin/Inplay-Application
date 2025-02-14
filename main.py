@@ -25,31 +25,36 @@ def calculate_probabilities():
         home_goals, away_goals = map(int, entries["entry_match_score"].get().split("-"))
 
         remaining_time_factor = 0.5
-        league_adjustment = (values["entry_league_position_away"] - values["entry_league_position_home"]) * 0.02
 
-        # Red card impact: 30% reduction for the team with red cards, 30% increase for the opponent
+        # Adjusted league position impact
+        league_adjustment = (values["entry_league_position_away"] - values["entry_league_position_home"]) * 0.04
+
+        # Red card impact: 30% penalty for red card team, 30% boost for the opponent
         red_card_penalty_home = 0.3 if values["entry_red_cards_home"] > 0 else 0
         red_card_penalty_away = 0.3 if values["entry_red_cards_away"] > 0 else 0
 
-        adjusted_home_goals = ((values["entry_home_scored"] + values["entry_xg_home"] * 0.5 - values["entry_away_conceded"]) *
-                                remaining_time_factor * (1 + values["entry_possession_home"] / 100 + 
-                                (values["entry_corners_home"] * 0.02) + (values["entry_shots_on_target_home"] * 0.03) - 
+        # Adjusted Expected Goals
+        adjusted_home_goals = max(0.1, (values["entry_home_scored"] + values["entry_xg_home"] * 0.5 - values["entry_away_conceded"]) *
+                                remaining_time_factor * (1 + (values["entry_possession_home"] / 200) + 
+                                (values["entry_corners_home"] * 0.015) + (values["entry_shots_on_target_home"] * 0.025) - 
                                 (values["entry_injuries_home"] * 0.05) - (values["entry_yellow_cards_home"] * 0.03) - 
                                 red_card_penalty_home + league_adjustment))
 
-        adjusted_away_goals = ((values["entry_away_scored"] + values["entry_xg_away"] * 0.5 - values["entry_home_conceded"]) *
-                                remaining_time_factor * (1 + values["entry_possession_away"] / 100 + 
-                                (values["entry_corners_away"] * 0.02) + (values["entry_shots_on_target_away"] * 0.03) - 
+        adjusted_away_goals = max(0.1, (values["entry_away_scored"] + values["entry_xg_away"] * 0.5 - values["entry_home_conceded"]) *
+                                remaining_time_factor * (1 + (values["entry_possession_away"] / 200) + 
+                                (values["entry_corners_away"] * 0.015) + (values["entry_shots_on_target_away"] * 0.025) - 
                                 (values["entry_injuries_away"] * 0.05) - (values["entry_yellow_cards_away"] * 0.03) - 
                                 red_card_penalty_away - league_adjustment))
 
-        p_zero_inflation_home = max(0, min(0.3, 0.1 - values["entry_xg_home"] * 0.05 - values["entry_shots_on_target_home"] * 0.02))
-        p_zero_inflation_away = max(0, min(0.3, 0.1 - values["entry_xg_away"] * 0.05 - values["entry_shots_on_target_away"] * 0.02))
+        # Increased zero-inflation impact for low-xG games
+        p_zero_inflation_home = max(0, min(0.2, 0.1 - values["entry_xg_home"] * 0.03 - values["entry_shots_on_target_home"] * 0.01))
+        p_zero_inflation_away = max(0, min(0.2, 0.1 - values["entry_xg_away"] * 0.03 - values["entry_shots_on_target_away"] * 0.01))
 
-        home_win_prob = sum([zero_inflated_poisson_probability(adjusted_home_goals, i + home_goals, p_zero_inflation_home) for i in range(5)])
-        away_win_prob = sum([zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(5)])
+        # Summing up to 4 goals instead of 5 to smooth results
+        home_win_prob = sum([zero_inflated_poisson_probability(adjusted_home_goals, i + home_goals, p_zero_inflation_home) for i in range(4)])
+        away_win_prob = sum([zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(4)])
         draw_prob = sum([zero_inflated_poisson_probability(adjusted_home_goals, i + home_goals, p_zero_inflation_home) * 
-                         zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(5)])
+                         zero_inflated_poisson_probability(adjusted_away_goals, i + away_goals, p_zero_inflation_away) for i in range(4)])
 
         total_prob = home_win_prob + away_win_prob + draw_prob
         home_win_prob /= total_prob
@@ -57,9 +62,9 @@ def calculate_probabilities():
         draw_prob /= total_prob
 
         fair_odds = {
-            "Home": 1 / home_win_prob, 
-            "Draw": 1 / draw_prob, 
-            "Away": 1 / away_win_prob
+            "Home": max(1.5, 1 / home_win_prob),  # Min cap at 1.5
+            "Draw": min(20, 1 / draw_prob),       # Max cap at 20
+            "Away": max(1.5, 1 / away_win_prob)
         }
 
         result_text = "Outcome | Fair Odds | Bookmaker Odds | Edge (%)\n"
@@ -68,34 +73,19 @@ def calculate_probabilities():
         lay_bets = {}
         for outcome in fair_odds:
             bookmaker_odds = values[f"entry_bookmaker_odds_{outcome.lower()}"]
-            if bookmaker_odds < fair_odds[outcome]:  
-                lay_bets[outcome] = fair_odds[outcome]
-
             fair_prob = 1 / fair_odds[outcome]
             bookmaker_prob = 1 / bookmaker_odds
             edge = (fair_prob - bookmaker_prob) / bookmaker_prob * 100  # Convert to percentage
 
             result_text += f"{outcome}: {fair_odds[outcome]:.2f} | {bookmaker_odds:.2f} | {edge:.2f}%\n"
 
+            # Now lay if edge is negative (bookmaker odds lower than fair odds)
+            if edge < 0:
+                lay_bets[outcome] = fair_odds[outcome]
+
         if lay_bets:
             best_lay = min(lay_bets, key=lay_bets.get)
-            bookmaker_odds = values[f"entry_bookmaker_odds_{best_lay.lower()}"]
-            
-            fair_prob = 1 / lay_bets[best_lay]
-            bookmaker_prob = 1 / bookmaker_odds
-            edge = (fair_prob - bookmaker_prob) / bookmaker_prob
-
-            if edge > 0:
-                kelly_stake_fraction = (edge / (bookmaker_odds - 1)) * kelly_fraction
-                lay_stake = kelly_stake_fraction * bankroll
-                liability = lay_stake * (bookmaker_odds - 1)
-
-                result_text += "\nRecommended Lay Bet:\n"
-                result_text += f"- {best_lay}\n"
-                result_text += f"- Kelly Stake: £{lay_stake:.2f} ({kelly_stake_fraction * 100:.2f}%)\n"
-                result_text += f"- Liability: £{liability:.2f}\n"
-            else:
-                result_text += "\nNo suitable lay bets found (No positive edge)."
+            result_text += f"\nRecommended Lay Bet: {best_lay} at {values[f'entry_bookmaker_odds_{best_lay.lower()}']:.2f}\n"
         else:
             result_text += "\nNo suitable lay bets found."
 
