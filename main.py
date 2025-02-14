@@ -74,7 +74,7 @@ def calculate_probabilities():
 
         # Compute edge percentages and Kelly staking
         best_lay_bet = None
-        best_edge = float('-inf')
+        best_edge = float('inf')  # We are looking for the most negative edge
         best_stake = 0
 
         result_text = "Outcome | Fair Odds | Bookmaker Odds | Edge (%) | Kelly Stake (£)\n" + "-" * 70 + "\n"
@@ -85,9 +85,9 @@ def calculate_probabilities():
             edge = (fair_prob - bookmaker_prob) / bookmaker_prob * 100
             kelly_stake = 0
 
-            if final_fair_odds[outcome] > bookmaker_odds:  # Lay bet condition
+            if edge <= -50:  # Only consider edges of -50 or less
                 kelly_stake = bankroll * kelly_fraction * (edge / 100)  # Kelly Criterion applied
-                if edge > best_edge:  # Select the best lay bet
+                if edge < best_edge:  # Select the best lay bet with the most negative edge
                     best_edge = edge
                     best_lay_bet = outcome
                     best_stake = kelly_stake
