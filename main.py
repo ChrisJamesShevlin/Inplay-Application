@@ -10,6 +10,13 @@ def zero_inflated_poisson(lam, zero_inflation=0.1):
     """Calculate the probability mass function with zero inflation."""
     return zero_inflation + (1 - zero_inflation) * poisson_pmf(0, lam)
 
+def kelly_criterion(fair_odds, bookmaker_odds, bankroll=100, fraction=0.25):
+    if bookmaker_odds >= fair_odds:
+        return 0  # No value bet
+    edge = (fair_odds - bookmaker_odds) / bookmaker_odds
+    kelly_fraction = edge / fair_odds
+    return bankroll * kelly_fraction * fraction
+
 def calculate_fair_odds():
     try:
         pre_match_home_odds = float(entry_home_odds.get())
@@ -66,13 +73,25 @@ def calculate_fair_odds():
         fair_away_odds = 1 / away_win_prob if away_win_prob > 0 else 100
         fair_draw_odds = 1 / draw_prob if draw_prob > 0 else 100
 
-        fair_odds_label.config(text=f"Fair Odds:\nHome: {fair_home_odds:.2f}\nAway: {fair_away_odds:.2f}\nDraw: {fair_draw_odds:.2f}")
+        kelly_home = kelly_criterion(fair_home_odds, halftime_home_odds)
+        kelly_away = kelly_criterion(fair_away_odds, halftime_away_odds)
+        kelly_draw = kelly_criterion(fair_draw_odds, halftime_draw_odds)
+
+        fair_odds_text = f"Fair Odds:\nHome: {fair_home_odds:.2f} vs {halftime_home_odds:.2f}, Stake: {kelly_home:.2f}\n" \
+                         f"Away: {fair_away_odds:.2f} vs {halftime_away_odds:.2f}, Stake: {kelly_away:.2f}\n" \
+                         f"Draw: {fair_draw_odds:.2f} vs {halftime_draw_odds:.2f}, Stake: {kelly_draw:.2f}"
+
+        fair_odds_label.config(text=fair_odds_text)
+
+        # Print the results
+        print(fair_odds_text)
+
     except ValueError:
         fair_odds_label.config(text="Error: Enter valid numbers")
 
 root = tk.Tk()
 root.title("Football Betting Model")
-root.geometry("400x700")
+root.geometry("400x1000")
 
 labels = ["Pre-Match Home Odds", "Pre-Match Away Odds", "Pre-Match Draw Odds",
           "Halftime Home Odds", "Halftime Away Odds", "Halftime Draw Odds",
