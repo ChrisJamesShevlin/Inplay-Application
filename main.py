@@ -67,11 +67,21 @@ def calculate_fair_odds():
 
         home_win_prob = 1 - zero_inflated_poisson(halftime_home_goals)
         away_win_prob = 1 - zero_inflated_poisson(halftime_away_goals)
-        draw_prob = 1 - (home_win_prob + away_win_prob)
 
+        # Proper Draw Probability Calculation
+        draw_prob = sum(poisson_pmf(i, halftime_home_goals) * poisson_pmf(i, halftime_away_goals) for i in range(5))
+        draw_prob = max(min(draw_prob, 1), 0.01)  # Keep within valid bounds
+
+        # Normalize all probabilities
+        total_prob = home_win_prob + away_win_prob + draw_prob
+        home_win_prob /= total_prob
+        away_win_prob /= total_prob
+        draw_prob /= total_prob
+
+        # Compute Fair Odds
         fair_home_odds = 1 / home_win_prob if home_win_prob > 0 else 100
         fair_away_odds = 1 / away_win_prob if away_win_prob > 0 else 100
-        fair_draw_odds = 1 / draw_prob if draw_prob > 0 else 100
+        fair_draw_odds = 1 / draw_prob if draw_prob > 0 else 100  # Fix draw odds issue
 
         kelly_home = kelly_criterion(fair_home_odds, halftime_home_odds)
         kelly_away = kelly_criterion(fair_away_odds, halftime_away_odds)
@@ -82,23 +92,15 @@ def calculate_fair_odds():
                          f"Draw: {fair_draw_odds:.2f} vs {halftime_draw_odds:.2f}, Stake: {kelly_draw:.2f}"
 
         fair_odds_label.config(text=fair_odds_text)
-
-        # Print the results
-        print(fair_odds_text)
-
     except ValueError:
         fair_odds_label.config(text="Error: Enter valid numbers")
 
+# Tkinter GUI setup
 root = tk.Tk()
 root.title("Football Betting Model")
 root.geometry("400x1000")
 
-labels = ["Pre-Match Home Odds", "Pre-Match Away Odds", "Pre-Match Draw Odds",
-          "Halftime Home Odds", "Halftime Away Odds", "Halftime Draw Odds",
-          "Avg Home Goals Scored", "Avg Home Goals Conceded", "Avg Away Goals Scored", "Avg Away Goals Conceded",
-          "Home Possession (%)", "Away Possession (%)", "Home Shots on Target", "Away Shots on Target", 
-          "Home Expected Goals", "Away Expected Goals", "Home Corners", "Away Corners", 
-          "Home Yellow Cards", "Away Yellow Cards", "Home Red Cards", "Away Red Cards", "Home Injuries", "Away Injuries", "Current Score"]
+labels = ["Pre-Match Home Odds", "Pre-Match Away Odds", "Pre-Match Draw Odds", "Halftime Home Odds", "Halftime Away Odds", "Halftime Draw Odds", "Avg Home Goals Scored", "Avg Home Goals Conceded", "Avg Away Goals Scored", "Avg Away Goals Conceded", "Home Possession (%)", "Away Possession (%)", "Home Shots on Target", "Away Shots on Target", "Home Expected Goals", "Away Expected Goals", "Home Corners", "Away Corners", "Home Yellow Cards", "Away Yellow Cards", "Home Red Cards", "Away Red Cards", "Home Injuries", "Away Injuries", "Current Score"]
 
 entries = []
 for label in labels:
@@ -109,15 +111,7 @@ for label in labels:
     entry.pack(side=tk.RIGHT)
     entries.append(entry)
 
-(entry_home_odds, entry_away_odds, entry_draw_odds,
- entry_halftime_home_odds, entry_halftime_away_odds, entry_halftime_draw_odds,
- entry_avg_home_goals_scored, entry_avg_home_goals_conceded,
- entry_avg_away_goals_scored, entry_avg_away_goals_conceded,
- entry_home_possession, entry_away_possession,
- entry_home_shots, entry_away_shots, entry_home_xg, entry_away_xg,
- entry_home_corners, entry_away_corners,
- entry_home_yellow, entry_away_yellow, entry_home_red, entry_away_red,
- entry_home_injuries, entry_away_injuries, entry_score) = entries
+(entry_home_odds, entry_away_odds, entry_draw_odds, entry_halftime_home_odds, entry_halftime_away_odds, entry_halftime_draw_odds, entry_avg_home_goals_scored, entry_avg_home_goals_conceded, entry_avg_away_goals_scored, entry_avg_away_goals_conceded, entry_home_possession, entry_away_possession, entry_home_shots, entry_away_shots, entry_home_xg, entry_away_xg, entry_home_corners, entry_away_corners, entry_home_yellow, entry_away_yellow, entry_home_red, entry_away_red, entry_home_injuries, entry_away_injuries, entry_score) = entries
 
 calculate_button = ttk.Button(root, text="Calculate Fair Odds", command=calculate_fair_odds)
 calculate_button.pack(pady=5)
