@@ -71,14 +71,17 @@ class FootballBettingModel:
         """Adjusts Kelly staking dynamically:
         - Uses 1/8 Kelly for lays ≤ 2.5 odds
         - Uses 1/16 Kelly for lays > 2.5 (up to 6.0)
-        - Ignores bets over 6.0 odds
+        - Uses 1/32 Kelly for lays > 6.0 (up to 12.0)
+        - Ignores bets over 12.0 odds
         """
-        if odds > 6.0:
-            return 0  # Skip bets over 6.0 odds
+        if odds > 12.0:
+            return 0  # Skip bets over 12.0 odds
         elif odds <= 2.5:
             fraction = 1/8  # More aggressive for lower odds
+        elif odds <= 6.0:
+            fraction = 1/16  # Conservative for medium odds
         else:
-            fraction = 1/16  # More conservative for higher odds
+            fraction = 1/32  # Extra conservative for high odds (6.0 - 12.0)
         
         return fraction * (edge / (odds - 1)) if odds > 1 else 0
 
@@ -133,7 +136,7 @@ class FootballBettingModel:
         for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds), 
                                               ("Away", fair_away_odds, live_away_odds), 
                                               ("Draw", fair_draw_odds, live_draw_odds)]:
-            if live_odds < fair_odds and live_odds <= 6:
+            if live_odds < fair_odds and live_odds <= 12:
                 edge = (fair_odds - live_odds) / fair_odds
                 if edge > best_edge:
                     best_edge = edge
