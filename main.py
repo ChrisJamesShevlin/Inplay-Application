@@ -60,15 +60,20 @@ class FootballBettingModel:
             elif isinstance(var, tk.IntVar):
                 var.set(0)
 
-    def poisson_probability(self, lam, k):
-        return (lam**k * exp(-lam)) / factorial(k)
+    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.15):
+        """ Implements a Zero-Inflated Poisson (ZIP) model for better goal predictions """
+        if k == 0:
+            return p_zero + (1 - p_zero) * exp(-lam)
+        else:
+            return (1 - p_zero) * (lam**k * exp(-lam)) / factorial(k)
+
+    def time_decay_adjustment(self, lambda_xg, elapsed_minutes):
+        """ Adjusts expected goals based on time decay (more goals late in the game) """
+        decay_factor = 1 - exp(-elapsed_minutes / 30)  
+        return lambda_xg * decay_factor
 
     def calculate_fair_odds(self):
         # Extract inputs
-        home_goals_scored = self.fields["Home Avg Goals Scored"].get()
-        home_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
-        away_goals_scored = self.fields["Away Avg Goals Scored"].get()
-        away_goals_conceded = self.fields["Away Avg Goals Conceded"].get()
         home_xg = self.fields["Home Xg"].get()
         away_xg = self.fields["Away Xg"].get()
         elapsed_minutes = self.fields["Elapsed Minutes"].get()
@@ -88,17 +93,26 @@ class FootballBettingModel:
         lambda_home = in_game_home_xg + (home_xg * remaining_minutes / 90)
         lambda_away = in_game_away_xg + (away_xg * remaining_minutes / 90)
 
+        # Apply possession-based adjustment
+        lambda_home *= 1 + ((home_possession - 50) / 100)
+        lambda_away *= 1 + ((away_possession - 50) / 100)
+
+        # Apply time decay adjustment
+        lambda_home = self.time_decay_adjustment(lambda_home, elapsed_minutes)
+        lambda_away = self.time_decay_adjustment(lambda_away, elapsed_minutes)
+
         # Calculate probabilities for possible match outcomes
         home_win_probability = 0
         away_win_probability = 0
         draw_probability = 0
 
-        for home_goals_remaining in range(0, 6):  # Considering 0 to 5 goals for remaining match
-            for away_goals_remaining in range(0, 6):
+        for home_goals_remaining in range(6):
+            for away_goals_remaining in range(6):
                 home_final_goals = home_goals + home_goals_remaining
                 away_final_goals = away_goals + away_goals_remaining
 
-                prob = self.poisson_probability(lambda_home, home_goals_remaining) * self.poisson_probability(lambda_away, away_goals_remaining)
+                prob = self.zero_inflated_poisson_probability(lambda_home, home_goals_remaining) * \
+                       self.zero_inflated_poisson_probability(lambda_away, away_goals_remaining)
 
                 if home_final_goals > away_final_goals:
                     home_win_probability += prob
@@ -112,93 +126,17 @@ class FootballBettingModel:
         fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
         fair_draw_odds = 1 / draw_probability if draw_probability != 0 else float('inf')
 
-        kelly_criterion = lambda p, q, b: (p * (b + 1) - 1) / b
+        # Dynamic Kelly Criterion (scales based on confidence)
+        def dynamic_kelly(edge, confidence=0.5):
+            return ((edge * confidence) / 2)
 
-        # Calculate Kelly Criterion for back or lay bet
-        margin = 0.05  # Margin for error
         edge_lay_home = (fair_home_odds - live_home_odds) / fair_home_odds
-        edge_lay_away = (fair_away_odds - live_away_odds) / fair_away_odds
-        edge_lay_draw = (fair_draw_odds - live_draw_odds) / fair_draw_odds
+        stake_lay_home = account_balance * dynamic_kelly(edge_lay_home, 0.75)
 
-        edge_back_home = (live_home_odds - fair_home_odds) / fair_home_odds
-        edge_back_away = (live_away_odds - fair_away_odds) / fair_away_odds
-        edge_back_draw = (live_draw_odds - fair_draw_odds) / fair_draw_odds
-
-        kelly_lay_home = kelly_criterion(1 / fair_home_odds, 1 - 1 / fair_home_odds, live_home_odds - 1) * 0.25
-        kelly_lay_away = kelly_criterion(1 / fair_away_odds, 1 - 1 / fair_away_odds, live_away_odds - 1) * 0.25
-        kelly_lay_draw = kelly_criterion(1 / fair_draw_odds, 1 - 1 / fair_draw_odds, live_draw_odds - 1) * 0.25
-
-        kelly_back_home = kelly_criterion(1 / live_home_odds, 1 - 1 / live_home_odds, fair_home_odds - 1) * 0.25
-        kelly_back_away = kelly_criterion(1 / live_away_odds, 1 - 1 / live_away_odds, fair_away_odds - 1) * 0.25
-        kelly_back_draw = kelly_criterion(1 / live_draw_odds, 1 - 1 / live_draw_odds, fair_draw_odds - 1) * 0.25
-
-        stake_lay_home = account_balance * kelly_lay_home
-        stake_lay_away = account_balance * kelly_lay_away
-        stake_lay_draw = account_balance * kelly_lay_draw
-
-        stake_back_home = account_balance * kelly_back_home
-        stake_back_away = account_balance * kelly_back_away
-        stake_back_draw = account_balance * kelly_back_draw
-
-        # Debugging output to console
-        debug_text = f"Debugging Information:\n"
-        debug_text += f"Home Goals Scored: {home_goals_scored}\n"
-        debug_text += f"Home Goals Conceded: {home_goals_conceded}\n"
-        debug_text += f"Away Goals Scored: {away_goals_scored}\n"
-        debug_text += f"Away Goals Conceded: {away_goals_conceded}\n"
-        debug_text += f"Home Xg: {home_xg}\n"
-        debug_text += f"Away Xg: {away_xg}\n"
-        debug_text += f"Elapsed Minutes: {elapsed_minutes}\n"
-        debug_text += f"Remaining Minutes: {remaining_minutes}\n"
-        debug_text += f"In-Game Home Xg: {in_game_home_xg}\n"
-        debug_text += f"In-Game Away Xg: {in_game_away_xg}\n"
-        debug_text += f"Home Possession: {home_possession}\n"
-        debug_text += f"Away Possession: {away_possession}\n"
-        debug_text += f"Lambda Home: {lambda_home}\n"
-        debug_text += f"Lambda Away: {lambda_away}\n"
-        debug_text += f"Home Win Probability: {home_win_probability}\n"
-        debug_text += f"Away Win Probability: {away_win_probability}\n"
-        debug_text += f"Draw Probability: {draw_probability}\n"
-        debug_text += f"Fair Home Odds: {fair_home_odds}\n"
-        debug_text += f"Fair Away Odds: {fair_away_odds}\n"
-        debug_text += f"Fair Draw Odds: {fair_draw_odds}\n"
-        debug_text += f"Edge Lay Home: {edge_lay_home}\n"
-        debug_text += f"Edge Lay Away: {edge_lay_away}\n"
-        debug_text += f"Edge Lay Draw: {edge_lay_draw}\n"
-        debug_text += f"Edge Back Home: {edge_back_home}\n"
-        debug_text += f"Edge Back Away: {edge_back_away}\n"
-        debug_text += f"Edge Back Draw: {edge_back_draw}\n"
-        debug_text += f"Kelly Lay Home: {kelly_lay_home}\n"
-        debug_text += f"Kelly Lay Away: {kelly_lay_away}\n"
-        debug_text += f"Kelly Lay Draw: {kelly_lay_draw}\n"
-        debug_text += f"Kelly Back Home: {kelly_back_home}\n"
-        debug_text += f"Kelly Back Away: {kelly_back_away}\n"
-        debug_text += f"Kelly Back Draw: {kelly_back_draw}\n"
-        debug_text += f"Stake Lay Home: {stake_lay_home}\n"
-        debug_text += f"Stake Lay Away: {stake_lay_away}\n"
-        debug_text += f"Stake Lay Draw: {stake_lay_draw}\n"
-        debug_text += f"Stake Back Home: {stake_back_home}\n"
-        debug_text += f"Stake Back Away: {stake_back_away}\n"
-        debug_text += f"Stake Back Draw: {stake_back_draw}\n"
-        print(debug_text)  # Print debug information to the console
-
-        # Determine the best bet based on the highest edge and fair odds being higher than live odds
-        result_text = "No recommended bet."
-        if fair_home_odds > live_home_odds * (1 + margin) and live_home_odds <= 6 and edge_lay_home > 0:
-            result_text = f"Recommended Lay Bet on Home\nFair Home Odds: {fair_home_odds:.2f}\nStake: {stake_lay_home:.2f}\n"
-        elif fair_away_odds > live_away_odds * (1 + margin) and live_away_odds <= 6 and edge_lay_away > 0:
-            result_text = f"Recommended Lay Bet on Away\nFair Away Odds: {fair_away_odds:.2f}\nStake: {stake_lay_away:.2f}\n"
-        elif fair_draw_odds > live_draw_odds * (1 + margin) and live_draw_odds <= 6 and edge_lay_draw > 0:
-            result_text = f"Recommended Lay Bet on Draw\nFair Draw Odds: {fair_draw_odds:.2f}\nStake: {stake_lay_draw:.2f}\n"
-        elif live_home_odds > fair_home_odds * (1 + margin) and edge_back_home > 0:
-            result_text = f"Recommended Back Bet on Home\nFair Home Odds: {fair_home_odds:.2f}\nStake: {stake_back_home:.2f}\n"
-        elif live_away_odds > fair_away_odds * (1 + margin) and edge_back_away > 0:
-            result_text = f"Recommended Back Bet on Away\nFair Away Odds: {fair_away_odds:.2f}\nStake: {stake_back_away:.2f}\n"
-        elif live_draw_odds > fair_draw_odds * (1 + margin) and edge_back_draw > 0:
-            result_text = f"Recommended Back Bet on Draw\nFair Draw Odds: {fair_draw_odds:.2f}\nStake: {stake_back_draw:.2f}\n"
-
-        # Output all fair odds
-        result_text += f"\nAll Fair Odds:\nHome: {fair_home_odds:.2f}\nAway: {fair_away_odds:.2f}\nDraw: {fair_draw_odds:.2f}"
+        # Display result
+        result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n"
+        if fair_home_odds > live_home_odds:
+            result_text += f"Recommended Lay Bet on Home, Stake: {stake_lay_home:.2f}\n"
 
         self.result_label.config(text=result_text)
 
