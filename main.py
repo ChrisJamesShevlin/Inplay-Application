@@ -43,9 +43,19 @@ class FootballBettingModel:
 
         calculate_button = ttk.Button(self.root, text="Calculate", command=self.calculate_fair_odds)
         calculate_button.grid(row=row, column=0, columnspan=2, pady=10)
+        
+        reset_button = ttk.Button(self.root, text="Reset Fields", command=self.reset_fields)
+        reset_button.grid(row=row+1, column=0, columnspan=2, pady=10)
 
         self.result_label = ttk.Label(self.root, text="")
-        self.result_label.grid(row=row+1, column=0, columnspan=2, pady=10)
+        self.result_label.grid(row=row+2, column=0, columnspan=2, pady=10)
+
+    def reset_fields(self):
+        for var in self.fields.values():
+            if isinstance(var, tk.DoubleVar):
+                var.set(0.0)
+            elif isinstance(var, tk.IntVar):
+                var.set(0)
 
     def zero_inflated_poisson_probability(self, lam, k, p_zero=0.15):
         if k == 0:
@@ -102,7 +112,7 @@ class FootballBettingModel:
         fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
         fair_draw_odds = 1 / draw_probability if draw_probability != 0 else float('inf')
 
-        def dynamic_kelly(edge, confidence=0.5):
+        def dynamic_kelly(edge, confidence=0.125):  # Updated Kelly criterion to 12.5% (eighth Kelly)
             return ((edge * confidence) / 2)
 
         best_lay_recommendation = None
@@ -115,7 +125,7 @@ class FootballBettingModel:
                 edge = (fair_odds - live_odds) / fair_odds
                 if edge > best_edge:
                     best_edge = edge
-                    stake = account_balance * dynamic_kelly(edge, 0.75)
+                    stake = account_balance * dynamic_kelly(edge, 0.125)  # Correct the Kelly criterion
                     best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}"
 
         result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n"
