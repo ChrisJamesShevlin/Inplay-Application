@@ -67,6 +67,21 @@ class FootballBettingModel:
         decay_factor = 1 - exp(-elapsed_minutes / 30)
         return lambda_xg * decay_factor
 
+    def dynamic_kelly(self, edge, odds):
+        """Adjusts Kelly staking dynamically:
+        - Uses 1/8 Kelly for lays ≤ 2.5 odds
+        - Uses 1/16 Kelly for lays > 2.5 (up to 6.0)
+        - Ignores bets over 6.0 odds
+        """
+        if odds > 6.0:
+            return 0  # Skip bets over 6.0 odds
+        elif odds <= 2.5:
+            fraction = 1/8  # More aggressive for lower odds
+        else:
+            fraction = 1/16  # More conservative for higher odds
+        
+        return fraction * (edge / (odds - 1)) if odds > 1 else 0
+
     def calculate_fair_odds(self):
         home_xg = self.fields["Home Xg"].get()
         away_xg = self.fields["Away Xg"].get()
@@ -112,9 +127,6 @@ class FootballBettingModel:
         fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
         fair_draw_odds = 1 / draw_probability if draw_probability != 0 else float('inf')
 
-        def dynamic_kelly(edge, confidence=0.125):  # Updated Kelly criterion to 12.5% (eighth Kelly)
-            return ((edge * confidence) / 2)
-
         best_lay_recommendation = None
         best_edge = -float('inf')
 
@@ -125,8 +137,9 @@ class FootballBettingModel:
                 edge = (fair_odds - live_odds) / fair_odds
                 if edge > best_edge:
                     best_edge = edge
-                    stake = account_balance * dynamic_kelly(edge, 0.125)  # Correct the Kelly criterion
-                    best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}"
+                    stake = account_balance * self.dynamic_kelly(edge, live_odds)  # Apply dynamic Kelly
+                    liability = stake * (live_odds - 1)  # Calculate liability
+                    best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}, Liability: {liability:.2f}"
 
         result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n"
         result_text += best_lay_recommendation if best_lay_recommendation else "No value lay bet found."
