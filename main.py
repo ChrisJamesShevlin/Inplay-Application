@@ -185,11 +185,11 @@ class FootballBettingModel:
         # Determine the best bet based on the highest edge and fair odds being higher than live odds
         result_text = "No recommended bet."
         if fair_home_odds > live_home_odds * (1 + margin) and live_home_odds <= 6 and edge_lay_home > 0:
-            result_text = f"Recommended Lay Bet on Home\nFair Home Odds: {fair_home_odds:.2f}\nLiability: {stake_lay_home:.2f}\n"
+            result_text = f"Recommended Lay Bet on Home\nFair Home Odds: {fair_home_odds:.2f}\nStake: {stake_lay_home:.2f}\n"
         elif fair_away_odds > live_away_odds * (1 + margin) and live_away_odds <= 6 and edge_lay_away > 0:
-            result_text = f"Recommended Lay Bet on Away\nFair Away Odds: {fair_away_odds:.2f}\nLiability: {stake_lay_away:.2f}\n"
+            result_text = f"Recommended Lay Bet on Away\nFair Away Odds: {fair_away_odds:.2f}\nStake: {stake_lay_away:.2f}\n"
         elif fair_draw_odds > live_draw_odds * (1 + margin) and live_draw_odds <= 6 and edge_lay_draw > 0:
-            result_text = f"Recommended Lay Bet on Draw\nFair Draw Odds: {fair_draw_odds:.2f}\nLiability: {stake_lay_draw:.2f}\n"
+            result_text = f"Recommended Lay Bet on Draw\nFair Draw Odds: {fair_draw_odds:.2f}\nStake: {stake_lay_draw:.2f}\n"
         elif live_home_odds > fair_home_odds * (1 + margin) and edge_back_home > 0:
             result_text = f"Recommended Back Bet on Home\nFair Home Odds: {fair_home_odds:.2f}\nStake: {stake_back_home:.2f}\n"
         elif live_away_odds > fair_away_odds * (1 + margin) and edge_back_away > 0:
