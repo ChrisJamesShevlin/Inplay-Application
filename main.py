@@ -10,9 +10,6 @@ class FootballBettingModel:
 
     def create_widgets(self):
         self.fields = {
-            "Home Win Odds": tk.DoubleVar(),
-            "Away Win Odds": tk.DoubleVar(),
-            "Draw Odds": tk.DoubleVar(),
             "Home Avg Goals Scored": tk.DoubleVar(),
             "Home Avg Goals Conceded": tk.DoubleVar(),
             "Away Avg Goals Scored": tk.DoubleVar(),
@@ -100,10 +97,20 @@ class FootballBettingModel:
         live_away_odds = self.fields["Live Away Odds"].get()
         live_draw_odds = self.fields["Live Draw Odds"].get()
         over_2_5_goals_odds = self.fields["Over 2.5 Goals Odds"].get()
+        
+        # New fields
+        home_avg_goals_scored = self.fields["Home Avg Goals Scored"].get()
+        home_avg_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
+        away_avg_goals_scored = self.fields["Away Avg Goals Scored"].get()
+        away_avg_goals_conceded = self.fields["Away Avg Goals Conceded"].get()
 
         remaining_minutes = 90 - elapsed_minutes
         lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
         lambda_away = self.time_decay_adjustment(in_game_away_xg + (away_xg * remaining_minutes / 90), elapsed_minutes)
+        
+        # Adjust lambda values based on average goals scored/conceded
+        lambda_home *= (home_avg_goals_scored / away_avg_goals_conceded)
+        lambda_away *= (away_avg_goals_scored / home_avg_goals_conceded)
         
         lambda_home *= 1 + ((home_possession - 50) / 100)
         lambda_away *= 1 + ((away_possession - 50) / 100)
