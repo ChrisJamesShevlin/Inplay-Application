@@ -63,6 +63,18 @@ class FootballBettingModel:
         decay_factor = max(0.5, 1 - (elapsed_minutes / 90))
         return lambda_xg * decay_factor
 
+    def dynamic_kelly(self, edge, odds):
+        if odds >= 20.0:
+            return 0  
+        elif odds < 2.0:
+            fraction = 0.25  
+        elif odds < 8.0:
+            fraction = 0.12  
+        else:
+            fraction = 0.06  
+
+        return max(0, fraction * (edge / (odds - 1))) if odds > 1 else 0
+
     def calculate_fair_odds(self):
         home_xg = self.fields["Home Xg"].get()
         away_xg = self.fields["Away Xg"].get()
@@ -114,9 +126,28 @@ class FootballBettingModel:
         fair_away_odds = 1 / away_win_probability
         fair_draw_odds = 1 / draw_probability
 
-        results = f"Live Odds:\nHome: {live_home_odds:.2f} | Away: {live_away_odds:.2f} | Draw: {live_draw_odds:.2f}\n"
-        results += f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}"
+        best_lay = None
+        best_edge = float('-inf')
 
+        results = f"Live Odds:\nHome: {live_home_odds:.2f} | Away: {live_away_odds:.2f} | Draw: {live_draw_odds:.2f}\n"
+        results += f"Fair Odds & Edge:\n"
+
+        for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds),
+                                              ("Away", fair_away_odds, live_away_odds),
+                                              ("Draw", fair_draw_odds, live_draw_odds)]:
+            edge = (fair_odds - live_odds) / fair_odds if live_odds < fair_odds else 0.0000
+            results += f"{outcome}: Fair {fair_odds:.2f} | Edge {edge:.4f}\n"
+            
+            if live_odds < fair_odds and live_odds < 20:
+                kelly_fraction = self.dynamic_kelly(edge, live_odds)
+                stake = account_balance * kelly_fraction
+                liability = stake * (live_odds - 1)
+
+                if edge > best_edge:
+                    best_edge = edge
+                    best_lay = f"Lay {outcome} at {live_odds:.2f} | Stake: {stake:.2f} | Liability: {liability:.2f}"
+
+        results += f"\nRecommended Bet:\n{best_lay if best_lay else 'No value lay bet found.'}"
         self.result_label.config(text=results)
 
 if __name__ == "__main__":
