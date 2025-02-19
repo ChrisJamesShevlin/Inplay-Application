@@ -54,33 +54,29 @@ class FootballBettingModel:
             elif isinstance(var, tk.IntVar):
                 var.set(0)
 
-    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.15):
+    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.10):
+        """Zero-inflated Poisson for realistic goal probabilities."""
         if k == 0:
             return p_zero + (1 - p_zero) * exp(-lam)
-        else:
-            return (1 - p_zero) * (lam**k * exp(-lam)) / factorial(k)
+        return (1 - p_zero) * ((lam ** k) * exp(-lam)) / factorial(k)
 
     def time_decay_adjustment(self, lambda_xg, elapsed_minutes):
-        decay_factor = 1 - exp(-elapsed_minutes / 30)
-        return lambda_xg * decay_factor
+        """Scales expected goals based on time decay, avoiding exponential overcorrection."""
+        decay_factor = 1 - (elapsed_minutes / 90)
+        return lambda_xg * max(0.3, decay_factor)  # Ensures reasonable lower limit
 
     def dynamic_kelly(self, edge, odds):
-        """Adjusts Kelly staking dynamically:
-        - Uses 1/8 Kelly for lays ≤ 2.5 odds
-        - Uses 1/16 Kelly for lays > 2.5 (up to 6.0)
-        - Uses 1/32 Kelly for lays > 6.0 (up to 12.0)
-        - Ignores bets over 12.0 odds
-        """
+        """Kelly staking strategy adjusted dynamically to avoid excessive staking."""
         if odds > 12.0:
-            return 0  # Skip bets over 12.0 odds
+            return 0  # Skip high-odds bets
         elif odds <= 2.5:
-            fraction = 1/8  # More aggressive for lower odds
+            fraction = 1/10  # Conservative for lower odds
         elif odds <= 6.0:
-            fraction = 1/16  # Conservative for medium odds
+            fraction = 1/20
         else:
-            fraction = 1/32  # Extra conservative for high odds (6.0 - 12.0)
-        
-        return fraction * (edge / (odds - 1)) if odds > 1 else 0
+            fraction = 1/30
+
+        return max(0, fraction * (edge / (odds - 1))) if odds > 1 else 0
 
     def calculate_fair_odds(self):
         home_xg = self.fields["Home Xg"].get()
@@ -98,7 +94,7 @@ class FootballBettingModel:
         live_draw_odds = self.fields["Live Draw Odds"].get()
         over_2_5_goals_odds = self.fields["Over 2.5 Goals Odds"].get()
         
-        # New fields
+        # Adjusted goal expectations
         home_avg_goals_scored = self.fields["Home Avg Goals Scored"].get()
         home_avg_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
         away_avg_goals_scored = self.fields["Away Avg Goals Scored"].get()
@@ -108,12 +104,12 @@ class FootballBettingModel:
         lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
         lambda_away = self.time_decay_adjustment(in_game_away_xg + (away_xg * remaining_minutes / 90), elapsed_minutes)
         
-        # Adjust lambda values based on average goals scored/conceded
-        lambda_home *= (home_avg_goals_scored / away_avg_goals_conceded)
-        lambda_away *= (away_avg_goals_scored / home_avg_goals_conceded)
-        
-        lambda_home *= 1 + ((home_possession - 50) / 100)
-        lambda_away *= 1 + ((away_possession - 50) / 100)
+        # Improved weight-based goal adjustment
+        lambda_home = (lambda_home * 0.6) + ((home_avg_goals_scored / away_avg_goals_conceded) * 0.4)
+        lambda_away = (lambda_away * 0.6) + ((away_avg_goals_scored / home_avg_goals_conceded) * 0.4)
+
+        lambda_home *= 1 + ((home_possession - 50) / 200)
+        lambda_away *= 1 + ((away_possession - 50) / 200)
 
         home_win_probability = 0
         away_win_probability = 0
@@ -139,43 +135,21 @@ class FootballBettingModel:
         away_win_probability /= total_prob
         draw_probability /= total_prob
 
-        # Adjust draw probability based on bookmaker odds for over 2.5 goals
-        if over_2_5_goals_odds < 1.5:
-            draw_adjustment_factor = 0.80
-        elif over_2_5_goals_odds < 2.0:
-            draw_adjustment_factor = 0.85
-        elif over_2_5_goals_odds < 2.6:
-            draw_adjustment_factor = 0.90
-        else:
-            draw_adjustment_factor = 1.10  # Increased sensitivity for higher odds
-        draw_probability *= draw_adjustment_factor
+        fair_home_odds = 1 / home_win_probability
+        fair_away_odds = 1 / away_win_probability
+        fair_draw_odds = 1 / draw_probability
 
-        # Normalize the probabilities to ensure they add up to 1
-        total_prob = home_win_probability + away_win_probability + draw_probability
-        home_win_probability /= total_prob
-        away_win_probability /= total_prob
-        draw_probability /= total_prob
-
-        fair_home_odds = 1 / home_win_probability if home_win_probability != 0 else float('inf')
-        fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
-        fair_draw_odds = 1 / draw_probability if draw_probability != 0 else float('inf')
-
-        best_lay_recommendation = None
-        best_edge = -float('inf')
-
+        best_lay_recommendation = "No value lay bet found."
         for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds), 
                                               ("Away", fair_away_odds, live_away_odds), 
                                               ("Draw", fair_draw_odds, live_draw_odds)]:
             if live_odds < fair_odds and live_odds <= 12:
                 edge = (fair_odds - live_odds) / fair_odds
-                if edge > best_edge:
-                    best_edge = edge
-                    stake = account_balance * self.dynamic_kelly(edge, live_odds)  # Apply dynamic Kelly
-                    liability = stake * (live_odds - 1)  # Calculate liability
-                    best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}, Liability: {liability:.2f}"
+                stake = account_balance * self.dynamic_kelly(edge, live_odds)
+                liability = stake * (live_odds - 1)
+                best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}, Liability: {liability:.2f}"
 
-        result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n"
-        result_text += best_lay_recommendation if best_lay_recommendation else "No value lay bet found."
+        result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n{best_lay_recommendation}"
         self.result_label.config(text=result_text)
 
 if __name__ == "__main__":
