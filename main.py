@@ -64,15 +64,15 @@ class FootballBettingModel:
 
     def dynamic_kelly(self, edge, odds):
         if odds >= 20.0:
-            return 0  
-        elif odds < 2.0:
-            fraction = 0.25  
-        elif odds < 8.0:
-            fraction = 0.12  
-        else:
-            fraction = 0.06  
-
-        return max(0, fraction * (edge / (odds - 1))) if odds > 1 else 0
+            return 0  # Avoid extreme odds
+        
+        if odds > 1.0:
+            # Scale the fraction based on the size of the edge
+            fraction = 0.25 if odds < 2.0 else 0.12 if odds < 8.0 else 0.06
+            scaled_fraction = fraction * (edge / (odds - 1))
+            return max(0, scaled_fraction)
+        
+        return 0
 
     def calculate_fair_odds(self):
         home_xg = self.fields["Home Xg"].get()
