@@ -129,8 +129,7 @@ class FootballBettingModel:
         best_lay = None
         best_edge = float('-inf')
 
-        results = f"Live Odds:\nHome: {live_home_odds:.2f} | Away: {live_away_odds:.2f} | Draw: {live_draw_odds:.2f}\n"
-        results += f"Fair Odds & Edge:\n"
+        results = "Fair Odds & Edge:\n"
 
         for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds),
                                               ("Away", fair_away_odds, live_away_odds),
