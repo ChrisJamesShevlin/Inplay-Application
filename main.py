@@ -55,14 +55,12 @@ class FootballBettingModel:
                 var.set(0)
 
     def zero_inflated_poisson_probability(self, lam, k, p_zero=0.06):
-        """Adjusted to prevent excessive zero-inflation."""
         if k == 0:
             return p_zero + (1 - p_zero) * exp(-lam)
         return (1 - p_zero) * ((lam ** k) * exp(-lam)) / factorial(k)
 
     def time_decay_adjustment(self, lambda_xg, elapsed_minutes):
-        """Time decay adjustment with smoother scaling."""
-        decay_factor = max(0.4, 1 - (elapsed_minutes / 90))  # Prevents collapse of expected goals
+        decay_factor = max(0.5, 1 - (elapsed_minutes / 90))
         return lambda_xg * decay_factor
 
     def calculate_fair_odds(self):
@@ -75,8 +73,11 @@ class FootballBettingModel:
         in_game_away_xg = self.fields["In-Game Away Xg"].get()
         home_possession = self.fields["Home Possession %"].get()
         away_possession = self.fields["Away Possession %"].get()
-        over_2_5_goals_odds = self.fields["Over 2.5 Goals Odds"].get()
-        
+        account_balance = self.fields["Account Balance"].get()
+        live_home_odds = self.fields["Live Home Odds"].get()
+        live_away_odds = self.fields["Live Away Odds"].get()
+        live_draw_odds = self.fields["Live Draw Odds"].get()
+
         home_avg_goals_scored = self.fields["Home Avg Goals Scored"].get()
         home_avg_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
         away_avg_goals_scored = self.fields["Away Avg Goals Scored"].get()
@@ -86,12 +87,8 @@ class FootballBettingModel:
         lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
         lambda_away = self.time_decay_adjustment(in_game_away_xg + (away_xg * remaining_minutes / 90), elapsed_minutes)
 
-        # Adjust lambda values using possession and expected goals (milder correction)
-        lambda_home = (lambda_home * 0.7) + ((home_avg_goals_scored / max(0.5, away_avg_goals_conceded)) * 0.3)
-        lambda_away = (lambda_away * 0.7) + ((away_avg_goals_scored / max(0.5, home_avg_goals_conceded)) * 0.3)
-
-        lambda_home *= 1 + ((home_possession - 50) / 300)
-        lambda_away *= 1 + ((away_possession - 50) / 300)
+        lambda_home = (lambda_home * 0.85) + ((home_avg_goals_scored / max(0.75, away_avg_goals_conceded)) * 0.15)
+        lambda_away = (lambda_away * 0.85) + ((away_avg_goals_scored / max(0.75, home_avg_goals_conceded)) * 0.15)
 
         home_win_probability, away_win_probability, draw_probability = 0, 0, 0
 
@@ -107,20 +104,20 @@ class FootballBettingModel:
                 else:
                     draw_probability += prob
 
-        # Adjust draw probability
-        draw_factor = 1 - (0.10 * abs(lambda_home - lambda_away) ** 0.6)
-        draw_probability *= draw_factor
-
         total_prob = home_win_probability + away_win_probability + draw_probability
-        home_win_probability /= total_prob
-        away_win_probability /= total_prob
-        draw_probability /= total_prob
+        if total_prob > 0:
+            home_win_probability /= total_prob
+            away_win_probability /= total_prob
+            draw_probability /= total_prob
 
         fair_home_odds = 1 / home_win_probability
         fair_away_odds = 1 / away_win_probability
         fair_draw_odds = 1 / draw_probability
 
-        self.result_label.config(text=f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}")
+        results = f"Live Odds:\nHome: {live_home_odds:.2f} | Away: {live_away_odds:.2f} | Draw: {live_draw_odds:.2f}\n"
+        results += f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}"
+
+        self.result_label.config(text=results)
 
 if __name__ == "__main__":
     root = tk.Tk()
