@@ -54,29 +54,16 @@ class FootballBettingModel:
             elif isinstance(var, tk.IntVar):
                 var.set(0)
 
-    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.10):
-        """Zero-inflated Poisson for realistic goal probabilities."""
+    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.06):
+        """Adjusted to prevent excessive zero-inflation."""
         if k == 0:
             return p_zero + (1 - p_zero) * exp(-lam)
         return (1 - p_zero) * ((lam ** k) * exp(-lam)) / factorial(k)
 
     def time_decay_adjustment(self, lambda_xg, elapsed_minutes):
-        """Scales expected goals based on time decay, avoiding exponential overcorrection."""
-        decay_factor = 1 - (elapsed_minutes / 90)
-        return lambda_xg * max(0.3, decay_factor)  # Ensures reasonable lower limit
-
-    def dynamic_kelly(self, edge, odds):
-        """Kelly staking strategy adjusted dynamically to avoid excessive staking."""
-        if odds > 12.0:
-            return 0  # Skip high-odds bets
-        elif odds <= 2.5:
-            fraction = 1/10  # Conservative for lower odds
-        elif odds <= 6.0:
-            fraction = 1/20
-        else:
-            fraction = 1/30
-
-        return max(0, fraction * (edge / (odds - 1))) if odds > 1 else 0
+        """Time decay adjustment with smoother scaling."""
+        decay_factor = max(0.4, 1 - (elapsed_minutes / 90))  # Prevents collapse of expected goals
+        return lambda_xg * decay_factor
 
     def calculate_fair_odds(self):
         home_xg = self.fields["Home Xg"].get()
@@ -88,13 +75,8 @@ class FootballBettingModel:
         in_game_away_xg = self.fields["In-Game Away Xg"].get()
         home_possession = self.fields["Home Possession %"].get()
         away_possession = self.fields["Away Possession %"].get()
-        account_balance = self.fields["Account Balance"].get()
-        live_home_odds = self.fields["Live Home Odds"].get()
-        live_away_odds = self.fields["Live Away Odds"].get()
-        live_draw_odds = self.fields["Live Draw Odds"].get()
         over_2_5_goals_odds = self.fields["Over 2.5 Goals Odds"].get()
         
-        # Adjusted goal expectations
         home_avg_goals_scored = self.fields["Home Avg Goals Scored"].get()
         home_avg_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
         away_avg_goals_scored = self.fields["Away Avg Goals Scored"].get()
@@ -103,32 +85,31 @@ class FootballBettingModel:
         remaining_minutes = 90 - elapsed_minutes
         lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
         lambda_away = self.time_decay_adjustment(in_game_away_xg + (away_xg * remaining_minutes / 90), elapsed_minutes)
-        
-        # Improved weight-based goal adjustment
-        lambda_home = (lambda_home * 0.6) + ((home_avg_goals_scored / away_avg_goals_conceded) * 0.4)
-        lambda_away = (lambda_away * 0.6) + ((away_avg_goals_scored / home_avg_goals_conceded) * 0.4)
 
-        lambda_home *= 1 + ((home_possession - 50) / 200)
-        lambda_away *= 1 + ((away_possession - 50) / 200)
+        # Adjust lambda values using possession and expected goals (milder correction)
+        lambda_home = (lambda_home * 0.7) + ((home_avg_goals_scored / max(0.5, away_avg_goals_conceded)) * 0.3)
+        lambda_away = (lambda_away * 0.7) + ((away_avg_goals_scored / max(0.5, home_avg_goals_conceded)) * 0.3)
 
-        home_win_probability = 0
-        away_win_probability = 0
-        draw_probability = 0
+        lambda_home *= 1 + ((home_possession - 50) / 300)
+        lambda_away *= 1 + ((away_possession - 50) / 300)
+
+        home_win_probability, away_win_probability, draw_probability = 0, 0, 0
 
         for home_goals_remaining in range(6):
             for away_goals_remaining in range(6):
-                home_final_goals = home_goals + home_goals_remaining
-                away_final_goals = away_goals + away_goals_remaining
-
                 prob = self.zero_inflated_poisson_probability(lambda_home, home_goals_remaining) * \
                        self.zero_inflated_poisson_probability(lambda_away, away_goals_remaining)
 
-                if home_final_goals > away_final_goals:
+                if home_goals + home_goals_remaining > away_goals + away_goals_remaining:
                     home_win_probability += prob
-                elif home_final_goals < away_final_goals:
+                elif home_goals + home_goals_remaining < away_goals + away_goals_remaining:
                     away_win_probability += prob
                 else:
                     draw_probability += prob
+
+        # Adjust draw probability
+        draw_factor = 1 - (0.10 * abs(lambda_home - lambda_away) ** 0.6)
+        draw_probability *= draw_factor
 
         total_prob = home_win_probability + away_win_probability + draw_probability
         home_win_probability /= total_prob
@@ -139,18 +120,7 @@ class FootballBettingModel:
         fair_away_odds = 1 / away_win_probability
         fair_draw_odds = 1 / draw_probability
 
-        best_lay_recommendation = "No value lay bet found."
-        for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds), 
-                                              ("Away", fair_away_odds, live_away_odds), 
-                                              ("Draw", fair_draw_odds, live_draw_odds)]:
-            if live_odds < fair_odds and live_odds <= 12:
-                edge = (fair_odds - live_odds) / fair_odds
-                stake = account_balance * self.dynamic_kelly(edge, live_odds)
-                liability = stake * (live_odds - 1)
-                best_lay_recommendation = f"Lay {outcome} at {live_odds:.2f}, Stake: {stake:.2f}, Liability: {liability:.2f}"
-
-        result_text = f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}\n{best_lay_recommendation}"
-        self.result_label.config(text=result_text)
+        self.result_label.config(text=f"Fair Odds:\nHome: {fair_home_odds:.2f}, Away: {fair_away_odds:.2f}, Draw: {fair_draw_odds:.2f}")
 
 if __name__ == "__main__":
     root = tk.Tk()
