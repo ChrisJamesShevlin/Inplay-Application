@@ -102,6 +102,10 @@ class FootballBettingModel:
         lambda_home = (lambda_home * 0.85) + ((home_avg_goals_scored / max(0.75, away_avg_goals_conceded)) * 0.15)
         lambda_away = (lambda_away * 0.85) + ((away_avg_goals_scored / max(0.75, home_avg_goals_conceded)) * 0.15)
 
+        # ✅ Now factoring in possession effect
+        lambda_home *= 1 + ((home_possession - 50) / 200)
+        lambda_away *= 1 + ((away_possession - 50) / 200)
+
         home_win_probability, away_win_probability, draw_probability = 0, 0, 0
 
         for home_goals_remaining in range(6):
@@ -136,15 +140,6 @@ class FootballBettingModel:
                                               ("Draw", fair_draw_odds, live_draw_odds)]:
             edge = (fair_odds - live_odds) / fair_odds if live_odds < fair_odds else 0.0000
             results += f"{outcome}: Fair {fair_odds:.2f} | Edge {edge:.4f}\n"
-            
-            if live_odds < fair_odds and live_odds < 20:
-                kelly_fraction = self.dynamic_kelly(edge, live_odds)
-                stake = account_balance * kelly_fraction
-                liability = stake * (live_odds - 1)
-
-                if edge > best_edge:
-                    best_edge = edge
-                    best_lay = f"Lay {outcome} at {live_odds:.2f} | Stake: {stake:.2f} | Liability: {liability:.2f}"
 
         results += f"\nRecommended Bet:\n{best_lay if best_lay else 'No value lay bet found.'}"
         self.result_label.config(text=results)
