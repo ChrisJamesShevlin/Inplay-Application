@@ -68,7 +68,7 @@ class FootballBettingModel:
         
         if odds > 1.0:
             # Scale the fraction based on the size of the edge
-            fraction = 0.25 if odds < 2.0 else 0.12 if odds < 8.0 else 0.06
+            fraction = 0.18 if odds < 2.0 else 0.12 if odds < 8.0 else 0.06
             scaled_fraction = fraction * (edge / (odds - 1))
             return max(0, scaled_fraction)
         
