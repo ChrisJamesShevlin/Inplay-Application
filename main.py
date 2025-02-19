@@ -99,6 +99,7 @@ class FootballBettingModel:
         live_home_odds = self.fields["Live Home Odds"].get()
         live_away_odds = self.fields["Live Away Odds"].get()
         live_draw_odds = self.fields["Live Draw Odds"].get()
+        over_2_5_goals_odds = self.fields["Over 2.5 Goals Odds"].get()
 
         remaining_minutes = 90 - elapsed_minutes
         lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
@@ -125,6 +126,22 @@ class FootballBettingModel:
                     away_win_probability += prob
                 else:
                     draw_probability += prob
+
+        total_prob = home_win_probability + away_win_probability + draw_probability
+        home_win_probability /= total_prob
+        away_win_probability /= total_prob
+        draw_probability /= total_prob
+
+        # Adjust draw probability based on bookmaker odds for over 2.5 goals
+        if over_2_5_goals_odds < 1.5:
+            draw_adjustment_factor = 0.80
+        elif over_2_5_goals_odds < 2.0:
+            draw_adjustment_factor = 0.85
+        elif over_2_5_goals_odds < 2.6:
+            draw_adjustment_factor = 0.90
+        else:
+            draw_adjustment_factor = 1.10  # Increased sensitivity for higher odds
+        draw_probability *= draw_adjustment_factor
 
         fair_home_odds = 1 / home_win_probability if home_win_probability != 0 else float('inf')
         fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
