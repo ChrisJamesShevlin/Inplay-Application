@@ -16,7 +16,6 @@ class FootballBettingModel:
             "Away Avg Goals Conceded": tk.DoubleVar(),
             "Home Xg": tk.DoubleVar(),
             "Away Xg": tk.DoubleVar(),
-            "Over 2.5 Goals Odds": tk.DoubleVar(),
             "Elapsed Minutes": tk.DoubleVar(),
             "Home Goals": tk.IntVar(),
             "Away Goals": tk.IntVar(),
