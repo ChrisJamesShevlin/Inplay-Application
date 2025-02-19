@@ -143,6 +143,12 @@ class FootballBettingModel:
             draw_adjustment_factor = 1.10  # Increased sensitivity for higher odds
         draw_probability *= draw_adjustment_factor
 
+        # Normalize the probabilities to ensure they add up to 1
+        total_prob = home_win_probability + away_win_probability + draw_probability
+        home_win_probability /= total_prob
+        away_win_probability /= total_prob
+        draw_probability /= total_prob
+
         fair_home_odds = 1 / home_win_probability if home_win_probability != 0 else float('inf')
         fair_away_odds = 1 / away_win_probability if away_win_probability != 0 else float('inf')
         fair_draw_odds = 1 / draw_probability if draw_probability != 0 else float('inf')
